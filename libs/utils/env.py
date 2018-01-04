@@ -746,6 +746,48 @@ class TestEnv(ShareState):
 
         self.platform['cpus_count'] = len(self.target.core_clusters)
 
+    def _load_em_from_device(self):
+        if not self.nrg_model:
+            return None
+
+        def _nrg_data(cpu):
+            cpu = self.nrg_model.cpu_nodes[cpu]
+            cluster = cpu.parent
+
+            cluster_pwr = cluster.active_states.values()[-1].power
+            cpu_cap = cpu.active_states.values()[-1].capacity
+            cpu_pwr = cpu.active_states.values()[-1].power
+            return cluster_pwr, cpu_cap, cpu_pwr
+
+        # Load "big" cpu energy model data
+        cls_pwr, cpu_cap, cpu_pwr = _nrg_data(self.nrg_model.biggest_cpus[0])
+        result = {
+            'big' : {
+                'cluster' : {
+                    'nrg_max' : cls_pwr,
+                },
+                'cpu' : {
+                    'cap_max' : cpu_cap,
+                    'nrg_max' : cpu_pwr,
+                }
+            }
+        }
+
+        # Load "little" cpu energy model data
+        if self.nrg_model.is_heterogeneous:
+            cls_pwr, cpu_cap, cpu_pwr = _nrg_data(self.nrg_model.littlest_cpus[0])
+            result['little'] = {
+                'cluster' : {
+                    'nrg_max' : cls_pwr,
+                },
+                'cpu' : {
+                    'cap_max' : cpu_cap,
+                    'nrg_max' : cpu_pwr,
+                }
+            }
+
+        return result
+
     def _load_em(self, board):
         em_path = os.path.join(basepath,
                 'libs/utils/platforms', board.lower() + '.json')
@@ -791,11 +833,17 @@ class TestEnv(ShareState):
             self._init_platform_smp()
 
         # Adding energy model information
+        # Try to load energy model from target config
         if 'nrg_model' in self.conf:
             self.platform['nrg_model'] = self.conf['nrg_model']
-        # Try to load the default energy model (if available)
         else:
+            # Try to load the default energy model from board config
             nrg_model = self._load_em(self.conf['board'])
+
+            # Try to load the default energy model from the device:
+            if not nrg_model:
+                nrg_model = self._load_em_from_device()
+
             # We shouldn't have an 'nrg_model' key if there is no energy model data
             if nrg_model:
                 self.platform['nrg_model'] = nrg_model
